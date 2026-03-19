@@ -2,7 +2,7 @@ import assert from "node:assert";
 import { describe, it } from "node:test";
 import { Chalk } from "chalk";
 import { TruncatedText } from "../src/components/truncated-text.js";
-import { visibleWidth } from "../src/utils.js";
+import { truncateToWidth, visibleWidth } from "../src/utils.js";
 
 // Force full color in CI so ANSI assertions are deterministic
 const chalk = new Chalk({ level: 3 });
@@ -125,5 +125,14 @@ describe("TruncatedText component", () => {
 		const stripped = lines[0].replace(/\x1b\[[0-9;]*m/g, "");
 		assert.ok(stripped.includes("..."));
 		assert.ok(!stripped.includes("Second line"));
+	});
+
+	it("truncates very long plain text without scanning the full string into grapheme objects", () => {
+		const longText = `${"a".repeat(10000)} tail`;
+		const truncated = truncateToWidth(longText, 20);
+
+		assert.strictEqual(visibleWidth(truncated), 20);
+		assert.ok(truncated.endsWith("..."));
+		assert.ok(truncated.startsWith("a".repeat(17)));
 	});
 });
