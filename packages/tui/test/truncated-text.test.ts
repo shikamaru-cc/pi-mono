@@ -136,6 +136,15 @@ describe("TruncatedText component", () => {
 		assert.ok(truncated.startsWith("a".repeat(17)));
 	});
 
+	it("does not replace fitting text with ellipsis when ellipsis itself is wider than maxWidth", () => {
+		const text = "a";
+		const truncated = truncateToWidth(text, 1, "...");
+
+		assert.strictEqual(truncated, text);
+		assert.strictEqual(visibleWidth(truncated), 1);
+		assert.ok(!truncated.includes("..."));
+	});
+
 	it("does not truncate text that fits within maxWidth even if it exceeds maxWidth minus ellipsis", () => {
 		const text = "123456789";
 		const truncated = truncateToWidth(text, 10);
