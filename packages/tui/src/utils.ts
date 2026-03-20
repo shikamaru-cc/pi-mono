@@ -695,76 +695,76 @@ export function truncateToWidth(
 	ellipsis: string = "...",
 	pad: boolean = false,
 ): string {
-	const textVisibleWidth = visibleWidth(text);
+	if (maxWidth <= 0) {
+		return "";
+	}
 
-	if (textVisibleWidth <= maxWidth) {
-		return pad ? text + " ".repeat(maxWidth - textVisibleWidth) : text;
+	let i = 0;
+	let scannedWidth = 0;
+	// Stores the prefix scanned up to the first grapheme that would overflow maxWidth.
+	const scannedSegments: Array<{ type: "ansi" | "grapheme"; value: string }> = [];
+
+	outer: while (i < text.length) {
+		const ansi = extractAnsiCode(text, i);
+		if (ansi) {
+			scannedSegments.push({ type: "ansi", value: ansi.code });
+			i += ansi.length;
+			continue;
+		}
+
+		let textEnd = i;
+		while (textEnd < text.length) {
+			if (extractAnsiCode(text, textEnd)) break;
+			textEnd++;
+		}
+
+		for (const { segment } of segmenter.segment(text.slice(i, textEnd))) {
+			if (!segment) continue;
+
+			scannedSegments.push({ type: "grapheme", value: segment });
+			scannedWidth += graphemeWidth(segment);
+			if (scannedWidth > maxWidth) {
+				break outer;
+			}
+		}
+
+		i = textEnd;
+	}
+
+	if (scannedWidth <= maxWidth) {
+		return pad ? text + " ".repeat(maxWidth - scannedWidth) : text;
 	}
 
 	const ellipsisWidth = visibleWidth(ellipsis);
 	const targetWidth = maxWidth - ellipsisWidth;
-
 	if (targetWidth <= 0) {
 		return ellipsis.substring(0, maxWidth);
 	}
 
-	// Separate ANSI codes from visible content using grapheme segmentation
-	let i = 0;
-	const segments: Array<{ type: "ansi" | "grapheme"; value: string }> = [];
+	let truncatedPrefix = "";
+	let prefixWidth = 0;
 
-	while (i < text.length) {
-		const ansiResult = extractAnsiCode(text, i);
-		if (ansiResult) {
-			segments.push({ type: "ansi", value: ansiResult.code });
-			i += ansiResult.length;
-		} else {
-			// Find the next ANSI code or end of string
-			let end = i;
-			while (end < text.length) {
-				const nextAnsi = extractAnsiCode(text, end);
-				if (nextAnsi) break;
-				end++;
-			}
-			// Segment this non-ANSI portion into graphemes
-			const textPortion = text.slice(i, end);
-			for (const seg of segmenter.segment(textPortion)) {
-				segments.push({ type: "grapheme", value: seg.segment });
-			}
-			i = end;
-		}
-	}
-
-	// Build truncated string from segments
-	let result = "";
-	let currentWidth = 0;
-
-	for (const seg of segments) {
-		if (seg.type === "ansi") {
-			result += seg.value;
+	for (const segment of scannedSegments) {
+		if (segment.type === "ansi") {
+			truncatedPrefix += segment.value;
 			continue;
 		}
 
-		const grapheme = seg.value;
-		// Skip empty graphemes to avoid issues with string-width calculation
-		if (!grapheme) continue;
-
-		const graphemeWidth = visibleWidth(grapheme);
-
-		if (currentWidth + graphemeWidth > targetWidth) {
+		const width = graphemeWidth(segment.value);
+		if (prefixWidth + width > targetWidth) {
 			break;
 		}
 
-		result += grapheme;
-		currentWidth += graphemeWidth;
+		truncatedPrefix += segment.value;
+		prefixWidth += width;
 	}
 
-	// Add reset code before ellipsis to prevent styling leaking into it
-	const truncated = `${result}\x1b[0m${ellipsis}`;
-	if (pad) {
-		const truncatedWidth = visibleWidth(truncated);
-		return truncated + " ".repeat(Math.max(0, maxWidth - truncatedWidth));
+	const truncated = `${truncatedPrefix}\x1b[0m${ellipsis}`;
+	if (!pad) {
+		return truncated;
 	}
-	return truncated;
+
+	return truncated + " ".repeat(Math.max(0, maxWidth - (prefixWidth + ellipsisWidth)));
 }
 
 /**
