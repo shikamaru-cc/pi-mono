@@ -49,15 +49,14 @@ class ThinkingBlock implements Component {
 	private title: Text;
 
 	constructor(
+		private titleLabel: string,
 		private child?: Component,
-		private hiddenLabel?: string,
 	) {
 		this.title = new Text("", 0, 0);
 	}
 
 	render(width: number): string[] {
-		const titleText = this.hiddenLabel ? this.hiddenLabel : `${theme.fg("thinkingText", "✓ Thinking")}`;
-		this.title.setText(this.hiddenLabel ? theme.italic(theme.fg("thinkingText", titleText)) : titleText);
+		this.title.setText(theme.fg("thinkingText", this.titleLabel));
 		const titleLines = this.title.render(width);
 		if (!this.child) {
 			return titleLines;
@@ -96,6 +95,13 @@ function hasVisibleAssistantContentAfter(message: AssistantMessage, index: numbe
 			(content.type === "thinking" && content.thinking.trim().length > 0)
 		);
 	});
+}
+
+function getThinkingTitle(hiddenThinkingLabel: string, hideThinkingBlock: boolean): string {
+	if (hideThinkingBlock && hiddenThinkingLabel.trim() && hiddenThinkingLabel !== "Thinking...") {
+		return hiddenThinkingLabel.trim();
+	}
+	return "○ Thinking";
 }
 
 /**
@@ -169,11 +175,13 @@ export class AssistantMessageComponent extends Container {
 					this.contentContainer.addChild(new Spacer(1));
 				}
 			} else if (content.type === "thinking" && content.thinking.trim()) {
+				const thinkingTitle = getThinkingTitle(this.hiddenThinkingLabel, this.hideThinkingBlock);
 				if (this.hideThinkingBlock) {
-					this.contentContainer.addChild(new ThinkingBlock(undefined, this.hiddenThinkingLabel));
+					this.contentContainer.addChild(new ThinkingBlock(thinkingTitle));
 				} else {
 					this.contentContainer.addChild(
 						new ThinkingBlock(
+							thinkingTitle,
 							new Markdown(content.thinking.trim(), 0, 0, this.markdownTheme, {
 								color: (text: string) => theme.fg("thinkingText", text),
 								italic: true,
