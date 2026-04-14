@@ -1,10 +1,31 @@
-import { Editor, type EditorOptions, type EditorTheme, type TUI } from "@mariozechner/pi-tui";
+import { Editor, type EditorOptions, type EditorTheme, type TUI, truncateToWidth } from "@mariozechner/pi-tui";
 import type { AppKeybinding, KeybindingsManager } from "../../../core/keybindings.js";
+
+function stripAnsi(value: string): string {
+	return value.replace(/\x1B(?:[@-Z\\-_]|\[[0-?]*[ -/]*[@-~])/g, "");
+}
+
+function isBorderLine(value: string): boolean {
+	return stripAnsi(value).includes("─");
+}
+
+function stripLeadingSpaces(value: string, count: number): string {
+	let remaining = count;
+	let index = 0;
+	while (remaining > 0 && index < value.length && value[index] === " ") {
+		index++;
+		remaining--;
+	}
+	return value.slice(index);
+}
 
 /**
  * Custom editor that handles app-level keybindings for coding-agent.
  */
 export class CustomEditor extends Editor {
+	private static readonly FIRST_LINE_PREFIX = "> ";
+	private static readonly CONTINUATION_PREFIX = "  ";
+
 	private keybindings: KeybindingsManager;
 	public actionHandlers: Map<AppKeybinding, () => void> = new Map();
 
@@ -25,6 +46,40 @@ export class CustomEditor extends Editor {
 	 */
 	onAction(action: AppKeybinding, handler: () => void): void {
 		this.actionHandlers.set(action, handler);
+	}
+
+	override render(width: number): string[] {
+		const lines = super.render(width);
+		if (lines.length < 3) {
+			return lines;
+		}
+
+		let bottomBorderIndex = -1;
+		for (let i = lines.length - 1; i >= 0; i--) {
+			if (isBorderLine(lines[i] ?? "")) {
+				bottomBorderIndex = i;
+				break;
+			}
+		}
+		if (bottomBorderIndex <= 0) {
+			return lines;
+		}
+
+		const maxPadding = Math.max(0, Math.floor((width - 1) / 2));
+		const effectivePadding = Math.min(this.getPaddingX(), maxPadding);
+		let isFirstEditorLine = true;
+
+		for (let i = 1; i < lines.length; i++) {
+			if (i === bottomBorderIndex) {
+				continue;
+			}
+			const prefix = isFirstEditorLine ? CustomEditor.FIRST_LINE_PREFIX : CustomEditor.CONTINUATION_PREFIX;
+			const strippedLine = stripLeadingSpaces(lines[i] ?? "", effectivePadding);
+			lines[i] = truncateToWidth(`${prefix}${strippedLine}`, width, "");
+			isFirstEditorLine = false;
+		}
+
+		return lines;
 	}
 
 	handleInput(data: string): void {
