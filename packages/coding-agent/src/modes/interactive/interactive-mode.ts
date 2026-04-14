@@ -1458,10 +1458,10 @@ export class InteractiveMode {
 			// Wrap string array in a Container with Text components
 			const container = new Container();
 			for (const line of content.slice(0, InteractiveMode.MAX_WIDGET_LINES)) {
-				container.addChild(new Text(line, 1, 0));
+				container.addChild(new Text(line));
 			}
 			if (content.length > InteractiveMode.MAX_WIDGET_LINES) {
-				container.addChild(new Text(theme.fg("muted", "... (widget truncated)"), 1, 0));
+				container.addChild(new Text(theme.fg("muted", "... (widget truncated)"), 0, 0));
 			}
 			component = container;
 		} else {
