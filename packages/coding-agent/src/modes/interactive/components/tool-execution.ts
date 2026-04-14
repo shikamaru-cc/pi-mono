@@ -40,7 +40,7 @@ class PrefixedBlock implements Component {
 
 	render(width: number): string[] {
 		if (!this.child) return [];
-		const prefixWidth = Math.max(this.firstPrefix.length, this.continuationPrefix.length);
+		const prefixWidth = Math.max(stripAnsi(this.firstPrefix).length, stripAnsi(this.continuationPrefix).length);
 		const innerWidth = Math.max(1, width - prefixWidth);
 		const lines = trimBlankEdges(this.child.render(innerWidth));
 		if (lines.length === 0) return [];
@@ -52,7 +52,7 @@ class PrefixedBlock implements Component {
 				return `${this.firstPrefix}${line}`;
 			}
 			if (!seenFirstVisible) return line;
-			return isBlankLine(line) ? "" : `${this.continuationPrefix}${line}`;
+			return isBlankLine(line) ? this.continuationPrefix.trimEnd() : `${this.continuationPrefix}${line}`;
 		});
 	}
 
@@ -125,7 +125,7 @@ export class ToolExecutionComponent extends Container {
 		this.contentBox = new Box(0, 0);
 		this.contentText = new Text("", 0, 0);
 
-		this.callBlock = new PrefixedBlock(`${theme.fg("accent", "●")} `, "  ");
+		this.callBlock = new PrefixedBlock(`${theme.fg("accent", "●")} `, `  ${theme.fg("toolTitle", "│")} `);
 		this.resultBlock = new PrefixedBlock(`  ${theme.fg("toolTitle", theme.bold("└"))} `, "    ");
 
 		if (this.hasRendererDefinition()) {
