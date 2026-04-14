@@ -5,6 +5,57 @@ import { getTextOutput as getRenderedTextOutput } from "../../../core/tools/rend
 import { convertToPng } from "../../../utils/image-convert.js";
 import { theme } from "../theme/theme.js";
 
+function stripAnsi(value: string): string {
+	return value.replace(/\x1B(?:[@-Z\\-_]|\[[0-?]*[ -/]*[@-~])/g, "");
+}
+
+function isBlankLine(value: string): boolean {
+	return stripAnsi(value).trim().length === 0;
+}
+
+function trimBlankEdges(lines: string[]): string[] {
+	let start = 0;
+	let end = lines.length;
+
+	while (start < end && isBlankLine(lines[start] ?? "")) start++;
+	while (end > start && isBlankLine(lines[end - 1] ?? "")) end--;
+
+	return lines.slice(start, end);
+}
+
+class PrefixedBlock implements Component {
+	constructor(
+		private child: Component,
+		private firstPrefix: string,
+		private continuationPrefix: string,
+	) {}
+
+	render(width: number): string[] {
+		const prefixWidth = Math.max(this.firstPrefix.length, this.continuationPrefix.length);
+		const innerWidth = Math.max(1, width - prefixWidth);
+		const lines = trimBlankEdges(this.child.render(innerWidth));
+		if (lines.length === 0) return [];
+
+		let seenFirstVisible = false;
+		return lines.map((line) => {
+			if (!seenFirstVisible && !isBlankLine(line)) {
+				seenFirstVisible = true;
+				return `${this.firstPrefix}${line}`;
+			}
+			if (!seenFirstVisible) return line;
+			return isBlankLine(line) ? "" : `${this.continuationPrefix}${line}`;
+		});
+	}
+
+	invalidate(): void {
+		this.child.invalidate?.();
+	}
+
+	handleInput?(data: string): void {
+		this.child.handleInput?.(data);
+	}
+}
+
 export interface ToolExecutionOptions {
 	showImages?: boolean;
 }
@@ -60,8 +111,8 @@ export class ToolExecutionComponent extends Container {
 
 		// Always create both. contentBox is used for tools with renderer-based call/result composition.
 		// contentText is reserved for generic fallback rendering when no tool definition exists.
-		this.contentBox = new Box(1, 1, (text: string) => theme.bg("toolPendingBg", text));
-		this.contentText = new Text("", 1, 1, (text: string) => theme.bg("toolPendingBg", text));
+		this.contentBox = new Box(0, 0);
+		this.contentText = new Text("", 0, 0);
 
 		if (this.hasRendererDefinition()) {
 			this.addChild(this.contentBox);
@@ -126,6 +177,14 @@ export class ToolExecutionComponent extends Container {
 			return undefined;
 		}
 		return new Text(theme.fg("toolOutput", output), 0, 0);
+	}
+
+	private wrapCallComponent(component: Component): Component {
+		return new PrefixedBlock(component, `${theme.fg("accent", "●")} `, "  ");
+	}
+
+	private wrapResultComponent(component: Component): Component {
+		return new PrefixedBlock(component, "  └ ", "    ");
 	}
 
 	updateArgs(args: any): void {
@@ -205,31 +264,30 @@ export class ToolExecutionComponent extends Container {
 	}
 
 	private updateDisplay(): void {
-		const bgFn = this.isPartial
-			? (text: string) => theme.bg("toolPendingBg", text)
-			: this.result?.isError
-				? (text: string) => theme.bg("toolErrorBg", text)
-				: (text: string) => theme.bg("toolSuccessBg", text);
-
 		let hasContent = false;
 		this.hideComponent = false;
 		if (this.hasRendererDefinition()) {
-			this.contentBox.setBgFn(bgFn);
+			this.contentBox.setBgFn(undefined);
 			this.contentBox.clear();
 
 			const callRenderer = this.getCallRenderer();
 			if (!callRenderer) {
-				this.contentBox.addChild(this.createCallFallback());
+				const component = this.wrapCallComponent(this.createCallFallback());
+				this.callRendererComponent = component;
+				this.contentBox.addChild(component);
 				hasContent = true;
 			} else {
 				try {
-					const component = callRenderer(this.args, theme, this.getRenderContext(this.callRendererComponent));
+					const component = this.wrapCallComponent(
+						callRenderer(this.args, theme, this.getRenderContext(this.callRendererComponent)),
+					);
 					this.callRendererComponent = component;
 					this.contentBox.addChild(component);
 					hasContent = true;
 				} catch {
 					this.callRendererComponent = undefined;
-					this.contentBox.addChild(this.createCallFallback());
+					const component = this.wrapCallComponent(this.createCallFallback());
+					this.contentBox.addChild(component);
 					hasContent = true;
 				}
 			}
@@ -239,32 +297,38 @@ export class ToolExecutionComponent extends Container {
 				if (!resultRenderer) {
 					const component = this.createResultFallback();
 					if (component) {
-						this.contentBox.addChild(component);
+						const wrapped = this.wrapResultComponent(component);
+						this.resultRendererComponent = wrapped;
+						this.contentBox.addChild(wrapped);
 						hasContent = true;
 					}
 				} else {
 					try {
-						const component = resultRenderer(
-							{ content: this.result.content as any, details: this.result.details },
-							{ expanded: this.expanded, isPartial: this.isPartial },
-							theme,
-							this.getRenderContext(this.resultRendererComponent),
+						const wrapped = this.wrapResultComponent(
+							resultRenderer(
+								{ content: this.result.content as any, details: this.result.details },
+								{ expanded: this.expanded, isPartial: this.isPartial },
+								theme,
+								this.getRenderContext(this.resultRendererComponent),
+							),
 						);
-						this.resultRendererComponent = component;
-						this.contentBox.addChild(component);
+						this.resultRendererComponent = wrapped;
+						this.contentBox.addChild(wrapped);
 						hasContent = true;
 					} catch {
 						this.resultRendererComponent = undefined;
 						const component = this.createResultFallback();
 						if (component) {
-							this.contentBox.addChild(component);
+							const wrapped = this.wrapResultComponent(component);
+							this.resultRendererComponent = wrapped;
+							this.contentBox.addChild(wrapped);
 							hasContent = true;
 						}
 					}
 				}
 			}
 		} else {
-			this.contentText.setCustomBgFn(bgFn);
+			this.contentText.setCustomBgFn(undefined);
 			this.contentText.setText(this.formatToolExecution());
 			hasContent = true;
 		}
