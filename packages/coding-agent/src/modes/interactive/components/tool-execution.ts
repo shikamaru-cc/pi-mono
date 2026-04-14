@@ -126,7 +126,7 @@ export class ToolExecutionComponent extends Container {
 		this.contentText = new Text("", 0, 0);
 
 		this.callBlock = new PrefixedBlock(`${theme.fg("accent", "●")} `, "  ");
-		this.resultBlock = new PrefixedBlock("  └ ", "    ");
+		this.resultBlock = new PrefixedBlock(`  ${theme.fg("toolTitle", theme.bold("└"))} `, "    ");
 
 		if (this.hasRendererDefinition()) {
 			this.contentBox.addChild(this.callBlock);
