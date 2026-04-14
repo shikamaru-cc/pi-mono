@@ -24,13 +24,22 @@ function trimBlankEdges(lines: string[]): string[] {
 }
 
 class PrefixedBlock implements Component {
+	private child?: Component;
+
 	constructor(
-		private child: Component,
 		private firstPrefix: string,
 		private continuationPrefix: string,
-	) {}
+		child?: Component,
+	) {
+		this.child = child;
+	}
+
+	setChild(child: Component | undefined): void {
+		this.child = child;
+	}
 
 	render(width: number): string[] {
+		if (!this.child) return [];
 		const prefixWidth = Math.max(this.firstPrefix.length, this.continuationPrefix.length);
 		const innerWidth = Math.max(1, width - prefixWidth);
 		const lines = trimBlankEdges(this.child.render(innerWidth));
@@ -48,11 +57,11 @@ class PrefixedBlock implements Component {
 	}
 
 	invalidate(): void {
-		this.child.invalidate?.();
+		this.child?.invalidate?.();
 	}
 
 	handleInput?(data: string): void {
-		this.child.handleInput?.(data);
+		this.child?.handleInput?.(data);
 	}
 }
 
@@ -63,6 +72,8 @@ export interface ToolExecutionOptions {
 export class ToolExecutionComponent extends Container {
 	private contentBox: Box;
 	private contentText: Text;
+	private callBlock: PrefixedBlock;
+	private resultBlock: PrefixedBlock;
 	private callRendererComponent?: Component;
 	private resultRendererComponent?: Component;
 	private rendererState: any = {};
@@ -114,7 +125,12 @@ export class ToolExecutionComponent extends Container {
 		this.contentBox = new Box(0, 0);
 		this.contentText = new Text("", 0, 0);
 
+		this.callBlock = new PrefixedBlock(`${theme.fg("accent", "●")} `, "  ");
+		this.resultBlock = new PrefixedBlock("  └ ", "    ");
+
 		if (this.hasRendererDefinition()) {
+			this.contentBox.addChild(this.callBlock);
+			this.contentBox.addChild(this.resultBlock);
 			this.addChild(this.contentBox);
 		} else {
 			this.addChild(this.contentText);
@@ -179,12 +195,13 @@ export class ToolExecutionComponent extends Container {
 		return new Text(theme.fg("toolOutput", output), 0, 0);
 	}
 
-	private wrapCallComponent(component: Component): Component {
-		return new PrefixedBlock(component, `${theme.fg("accent", "●")} `, "  ");
-	}
-
-	private wrapResultComponent(component: Component): Component {
-		return new PrefixedBlock(component, "  └ ", "    ");
+	private setWrappedComponent(block: PrefixedBlock, component: Component | undefined, type: "call" | "result"): void {
+		if (type === "call") {
+			this.callRendererComponent = component;
+		} else {
+			this.resultRendererComponent = component;
+		}
+		block.setChild(component);
 	}
 
 	updateArgs(args: any): void {
@@ -267,68 +284,37 @@ export class ToolExecutionComponent extends Container {
 		let hasContent = false;
 		this.hideComponent = false;
 		if (this.hasRendererDefinition()) {
-			this.contentBox.setBgFn(undefined);
-			this.contentBox.clear();
-
 			const callRenderer = this.getCallRenderer();
-			if (!callRenderer) {
-				const component = this.wrapCallComponent(this.createCallFallback());
-				this.callRendererComponent = component;
-				this.contentBox.addChild(component);
-				hasContent = true;
-			} else {
-				try {
-					const component = this.wrapCallComponent(
-						callRenderer(this.args, theme, this.getRenderContext(this.callRendererComponent)),
-					);
-					this.callRendererComponent = component;
-					this.contentBox.addChild(component);
-					hasContent = true;
-				} catch {
-					this.callRendererComponent = undefined;
-					const component = this.wrapCallComponent(this.createCallFallback());
-					this.contentBox.addChild(component);
-					hasContent = true;
-				}
+			let callComponent: Component;
+			try {
+				callComponent = callRenderer
+					? callRenderer(this.args, theme, this.getRenderContext(this.callRendererComponent))
+					: this.createCallFallback();
+			} catch {
+				callComponent = this.createCallFallback();
 			}
+			this.setWrappedComponent(this.callBlock, callComponent, "call");
+			hasContent = true;
 
+			let resultComponent: Component | undefined;
 			if (this.result) {
 				const resultRenderer = this.getResultRenderer();
-				if (!resultRenderer) {
-					const component = this.createResultFallback();
-					if (component) {
-						const wrapped = this.wrapResultComponent(component);
-						this.resultRendererComponent = wrapped;
-						this.contentBox.addChild(wrapped);
-						hasContent = true;
-					}
-				} else {
-					try {
-						const wrapped = this.wrapResultComponent(
-							resultRenderer(
+				try {
+					resultComponent = resultRenderer
+						? resultRenderer(
 								{ content: this.result.content as any, details: this.result.details },
 								{ expanded: this.expanded, isPartial: this.isPartial },
 								theme,
 								this.getRenderContext(this.resultRendererComponent),
-							),
-						);
-						this.resultRendererComponent = wrapped;
-						this.contentBox.addChild(wrapped);
-						hasContent = true;
-					} catch {
-						this.resultRendererComponent = undefined;
-						const component = this.createResultFallback();
-						if (component) {
-							const wrapped = this.wrapResultComponent(component);
-							this.resultRendererComponent = wrapped;
-							this.contentBox.addChild(wrapped);
-							hasContent = true;
-						}
-					}
+							)
+						: this.createResultFallback();
+				} catch {
+					resultComponent = this.createResultFallback();
 				}
 			}
+			this.setWrappedComponent(this.resultBlock, resultComponent, "result");
+			hasContent ||= resultComponent !== undefined;
 		} else {
-			this.contentText.setCustomBgFn(undefined);
 			this.contentText.setText(this.formatToolExecution());
 			hasContent = true;
 		}
